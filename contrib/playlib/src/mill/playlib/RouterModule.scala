@@ -47,6 +47,8 @@ trait RouterModule extends ScalaModule with Version {
   def generatorType: RouteCompilerType = RouteCompilerType.InjectedGenerator
 
   def routerClasspath: T[Agg[PathRef]] = T {
+    val usingPlayVersion = playVersion()
+    println(s"using play version $usingPlayVersion")
     resolveDependencies(
       Seq(
         coursier.LocalRepositories.ivy2Local,
@@ -54,7 +56,7 @@ trait RouterModule extends ScalaModule with Version {
       ),
       Lib.depToDependency(_, scalaVersion()),
       Seq(
-        ivy"com.typesafe.play::routes-compiler:${playVersion()}"
+        ivy"com.typesafe.play::routes-compiler:${usingPlayVersion}"
       )
     )
   }
