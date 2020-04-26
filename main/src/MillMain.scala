@@ -45,6 +45,8 @@ object MillMain {
   ): (Boolean, Option[Evaluator.State]) = {
     import ammonite.main.Cli
 
+    stdout.println(s"Welcome to Mill ${sys.props.get("user.name").map(_.toLowerCase().capitalize).mkString}...")
+
     val millHome = mill.api.Ctx.defaultHome
 
     val removed = Set("predef-code", "no-home-predef")

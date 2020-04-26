@@ -78,9 +78,11 @@ case class GenIdeaImpl(evaluator: Evaluator,
         case None =>
           val repos = modules.foldLeft(Set.empty[Repository]) { _ ++ _._2.repositories } ++ Set(LocalRepositories.ivy2Local, Repositories.central)
           val artifactNames = Seq("main-moduledefs", "main-api", "main-core", "scalalib", "scalajslib")
+          val artifactScalaVersion = "2.13.1" // 2.12.8
+          this.ctx.log.info(s"looking for artifacts  $artifactNames with version $artifactScalaVersion...")
           val Result.Success(res) = scalalib.Lib.resolveDependencies(
             repos.toList,
-            Lib.depToDependency(_, "2.12.8", ""),
+            Lib.depToDependency(_, artifactScalaVersion, ""),
             for(name <- artifactNames)
             yield ivy"com.lihaoyi::mill-$name:${sys.props("MILL_VERSION")}",
             false,
