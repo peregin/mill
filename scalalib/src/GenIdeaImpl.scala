@@ -94,7 +94,7 @@ case class GenIdeaImpl(evaluator: Evaluator,
           {
             scalalib.Lib.resolveDependencies(
               repos.toList,
-              Lib.depToDependency(_, "2.12.8", ""),
+              Lib.depToDependency(_, artifactScalaVersion, ""),
               for(name <- artifactNames)
               yield ivy"com.lihaoyi::mill-$name:${sys.props("MILL_VERSION")}",
               true,
