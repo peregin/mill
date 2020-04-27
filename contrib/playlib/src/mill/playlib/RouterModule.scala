@@ -62,7 +62,7 @@ trait RouterModule extends ScalaModule with Version {
   }
 
   final def compileRouter: T[CompilationResult] = T.persistent {
-    T.log.debug(s"compiling play routes with ${playVersion()} worker")
+    T.log.info(s"compiling play routes with ${playVersion()} worker")
     RouteCompilerWorkerModule.routeCompilerWorker().compile(
       toolsClasspath().map(_.path),
       routeFiles().map(_.path),
