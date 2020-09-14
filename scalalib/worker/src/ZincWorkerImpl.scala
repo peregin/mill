@@ -1,6 +1,6 @@
 package mill.scalalib.worker
 
-import java.io.{ByteArrayInputStream, File, InputStream, SequenceInputStream}
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream, File, InputStream, PrintStream, SequenceInputStream}
 import java.net.URI
 import java.nio.file.attribute.PosixFilePermission
 import java.nio.file.{FileSystems, Files, StandardOpenOption}
@@ -12,7 +12,7 @@ import mill.api.{BuildProblemReporter, IO, Info, KeyedLockedCache, PathRef, Prob
 import mill.scalalib.api.Util.{grepJar, isDotty, scalaBinaryVersion}
 import mill.scalalib.api.{CompilationResult, ZincWorkerApi}
 import sbt.internal.inc._
-import sbt.internal.util.{ConsoleOut, MainAppender}
+import sbt.internal.util.{ConsoleAppender, ConsoleLogger, ConsoleOut, MainAppender}
 import sbt.util.LogExchange
 import xsbti.compile.{CompilerCache => _, FileAnalysisStore => _, ScalaInstance => _, _}
 
@@ -43,8 +43,8 @@ class ZincProblem(base: xsbti.Problem) extends Problem {
 class ZincProblemPosition(base: xsbti.Position) extends ProblemPosition {
 
   object JavaOptionConverter {
-    implicit def convertInt(x: Optional[Integer]): Option[Int] = if (x.isEmpty) None else Some(x.get().intValue())
-    implicit def convert[T](x: Optional[T]): Option[T] = if (x.isEmpty) None else Some(x.get())
+    implicit def convertInt(x: Optional[Integer]): Option[Int] = if (x.isPresent) Some(x.get().intValue()) else None
+    implicit def convert[T](x: Optional[T]): Option[T] = if (x.isPresent) Some(x.get()) else None
   }
 
   import JavaOptionConverter._
@@ -101,6 +101,8 @@ class ZincWorkerImpl(compilerBridge: Either[
     )
   }
 
+  val compilerBridgeLocks = collection.mutable.Map.empty[String, Object]
+
   def docJar(scalaVersion: String,
              scalaOrganization: String,
              compilerClasspath: Agg[os.Path],
@@ -113,9 +115,17 @@ class ZincWorkerImpl(compilerBridge: Either[
       compilerClasspath,
       scalacPluginClasspath
     ) { compilers: Compilers =>
-      val scaladocClass = compilers.scalac().scalaInstance().loader().loadClass("scala.tools.nsc.ScalaDoc")
-      val scaladocMethod = scaladocClass.getMethod("process", classOf[Array[String]])
-      scaladocMethod.invoke(scaladocClass.newInstance(), args.toArray).asInstanceOf[Boolean]
+      if (isDotty(scalaVersion)) {
+        val dottydocClass = compilers.scalac().scalaInstance().loader().loadClass("dotty.tools.dottydoc.DocDriver")
+        val dottydocMethod = dottydocClass.getMethod("process", classOf[Array[String]])
+        val reporter = dottydocMethod.invoke(dottydocClass.newInstance(), args.toArray)
+        val hasErrorsMethod = reporter.getClass().getMethod("hasErrors")
+        !hasErrorsMethod.invoke(reporter).asInstanceOf[Boolean]
+      } else {
+        val scaladocClass = compilers.scalac().scalaInstance().loader().loadClass("scala.tools.nsc.ScalaDoc")
+        val scaladocMethod = scaladocClass.getMethod("process", classOf[Array[String]])
+        scaladocMethod.invoke(scaladocClass.newInstance(), args.toArray).asInstanceOf[Boolean]
+      }
     }
   }
 
@@ -127,6 +137,7 @@ class ZincWorkerImpl(compilerBridge: Either[
                         compilerJars: Array[File],
                         compilerBridgeClasspath: Array[os.Path],
                         compilerBridgeSourcesJar: os.Path): Unit = {
+    val compileLog = compileDest / "compile-log.txt"
     ctx0.log.info("Compiling compiler interface...")
 
     os.makeDir.all(workingDir)
@@ -154,7 +165,7 @@ class ZincWorkerImpl(compilerBridge: Either[
       )
       compilerMain
         .getMethod("process", classOf[Array[String]])
-        .invoke(null, argsArray)
+        .invoke(null, argsArray ++ Array("-nowarn"))
     } else {
       throw new IllegalArgumentException("Currently not implemented case.")
     }
@@ -163,24 +174,27 @@ class ZincWorkerImpl(compilerBridge: Either[
   /** If needed, compile (for Scala 2) or download (for Dotty) the compiler bridge.
     * @return a path to the directory containing the compiled classes, or to the downloaded jar file
     */
-  def compileBridgeIfNeeded(scalaVersion: String, scalaOrganization: String, compilerClasspath: Agg[os.Path]): os.Path = synchronized {
+  def compileBridgeIfNeeded(scalaVersion: String, scalaOrganization: String, compilerClasspath: Agg[os.Path]): os.Path = {
     compilerBridge match {
       case Right(compiled) => compiled(scalaVersion)
       case Left((ctx0, bridgeProvider)) =>
         val workingDir = ctx0.dest / scalaVersion
+        val lock = synchronized(compilerBridgeLocks.getOrElseUpdate(scalaVersion, new Object()))
         val compiledDest = workingDir / 'compiled
-        if (os.exists(compiledDest)) {
-          compiledDest
-        } else {
-          val (cp, bridgeJar) = bridgeProvider(scalaVersion, scalaOrganization)
-          cp match {
-            case None =>
-              bridgeJar
-            case Some(bridgeClasspath) =>
-              val compilerJars = compilerClasspath.toArray.map(_.toIO)
-              compileZincBridge(ctx0, workingDir, compiledDest, scalaVersion, compilerJars, bridgeClasspath, bridgeJar)
-              compiledDest
+        lock.synchronized{
+          if (os.exists(compiledDest / "DONE")) compiledDest
+          else {
+            val (cp, bridgeJar) = bridgeProvider(scalaVersion, scalaOrganization)
+            cp match {
+              case None => bridgeJar
+              case Some(bridgeClasspath) =>
+                val compilerJars = compilerClasspath.toArray.map(_.toIO)
+                compileZincBridge(ctx0, workingDir, compiledDest, scalaVersion, compilerJars, bridgeClasspath, bridgeJar)
+                os.write(compiledDest / "DONE", "")
+                compiledDest
+            }
           }
+
         }
     }
 
@@ -339,7 +353,9 @@ class ZincWorkerImpl(compilerBridge: Either[
         loader = getCachedClassLoader(compilersSig, combinedCompilerJars),
         libraryJar = libraryJarNameGrep(
           compilerClasspath,
-          if (isDotty(scalaVersion)) "2.13.0" else scalaVersion
+          // we don't support too outdated dotty versions
+          // and because there will be no scala 2.14, so hardcode "2.13." here is acceptable
+          if (isDotty(scalaVersion)) "2.13." else scalaVersion
         ).toIO,
         compilerJar = compilerJar.toIO,
         allJars = combinedCompilerJars,
@@ -364,16 +380,18 @@ class ZincWorkerImpl(compilerBridge: Either[
                              (implicit ctx: ZincWorkerApi.Ctx): mill.api.Result[(os.Path, os.Path)] = {
     os.makeDir.all(ctx.dest)
 
-    val logger = {
-      val consoleAppender = MainAppender.defaultScreen(ConsoleOut.printStreamOut(
-        ctx.log.outputStream
-      ))
-      val id = Thread.currentThread().getId().toString
-      val l = LogExchange.logger(id)
-      LogExchange.unbindLoggerAppenders(id)
-      LogExchange.bindLoggerAppenders(id, (consoleAppender -> sbt.util.Level.Info) :: Nil)
-      l
-    }
+    val consoleAppender = ConsoleAppender(
+      "ZincLogAppender",
+      ConsoleOut.printStreamOut(ctx.log.outputStream),
+      ctx.log.colored,
+      ctx.log.colored,
+      _ => None
+    )
+    val loggerId = Thread.currentThread().getId().toString
+    val logger = LogExchange.logger(loggerId)
+    LogExchange.unbindLoggerAppenders(loggerId)
+    LogExchange.bindLoggerAppenders(loggerId, (consoleAppender -> sbt.util.Level.Info) :: Nil)
+
     val newReporter = reporter match {
       case None => new ManagedLoggedReporter(10, logger)
       case Some(r) => new ManagedLoggedReporter(10, logger) {

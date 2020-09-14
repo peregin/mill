@@ -1,7 +1,6 @@
 package mill.scalalib
 
 import scala.collection.immutable
-
 import ammonite.runtime.SpecialClassLoader
 import coursier.core.compatibility.xmlParseDom
 import coursier.maven.Pom
@@ -11,11 +10,11 @@ import mill.api.Strict.Agg
 import mill.api.{Loose, Result, Strict}
 import mill.define._
 import mill.eval.{Evaluator, PathRef}
+import mill.modules.Util
 import mill.{T, scalalib}
 import os.{Path, RelPath}
 import scala.util.Try
 import scala.xml.{Elem, MetaData, NodeSeq, Null, UnprefixedAttribute}
-
 import mill.scalalib.GenIdeaModule.{IdeaConfigFile, JavaFacet}
 
 case class GenIdeaImpl(evaluator: Evaluator,
@@ -67,22 +66,21 @@ case class GenIdeaImpl(evaluator: Evaluator,
     val modules: Seq[(Segments, JavaModule)] = rootModule.millInternal.segmentsToModules.values
       .collect{ case x: scalalib.JavaModule => x }
       .flatMap(_.transitiveModuleDeps)
+      .filterNot(_.skipIdea)
       .map(x => (x.millModuleSegments, x))
       .toSeq
       .distinct
 
     val buildLibraryPaths: immutable.Seq[Path] =
       if (!fetchMillModules) Nil
-      else Option(mill.modules.Util.millProperty("MILL_BUILD_LIBRARIES")) match {
+      else Util.millProperty("MILL_BUILD_LIBRARIES") match {
         case Some(found) => found.split(',').map(os.Path(_)).distinct.toList
         case None =>
           val repos = modules.foldLeft(Set.empty[Repository]) { _ ++ _._2.repositories } ++ Set(LocalRepositories.ivy2Local, Repositories.central)
           val artifactNames = Seq("main-moduledefs", "main-api", "main-core", "scalalib", "scalajslib")
-          val artifactScalaVersion = "2.13.1" // 2.12.8
-          this.ctx.log.info(s"looking for artifacts  $artifactNames with version $artifactScalaVersion...")
           val Result.Success(res) = scalalib.Lib.resolveDependencies(
             repos.toList,
-            Lib.depToDependency(_, artifactScalaVersion, ""),
+            Lib.depToDependency(_, "2.13.2", ""),
             for(name <- artifactNames)
             yield ivy"com.lihaoyi::mill-$name:${sys.props("MILL_VERSION")}",
             false,
@@ -94,7 +92,7 @@ case class GenIdeaImpl(evaluator: Evaluator,
           {
             scalalib.Lib.resolveDependencies(
               repos.toList,
-              Lib.depToDependency(_, artifactScalaVersion, ""),
+              Lib.depToDependency(_, "2.13.2", ""),
               for(name <- artifactNames)
               yield ivy"com.lihaoyi::mill-$name:${sys.props("MILL_VERSION")}",
               true,
@@ -136,7 +134,7 @@ case class GenIdeaImpl(evaluator: Evaluator,
         case x: ScalaModule => x.scalaLibraryIvyDeps
         case _ => T.task{Loose.Agg.empty[Dep]}
       }
-      val allIvyDeps = T.task{mod.transitiveIvyDeps() ++ scalaLibraryIvyDeps() ++ mod.compileIvyDeps()}
+      val allIvyDeps = T.task{mod.transitiveIvyDeps() ++ scalaLibraryIvyDeps() ++ mod.transitiveCompileIvyDeps()}
 
       val scalaCompilerClasspath = mod match{
         case x: ScalaModule => x.scalaCompilerClasspath
@@ -305,7 +303,7 @@ case class GenIdeaImpl(evaluator: Evaluator,
       val scalaArtifactRegex = ".*_[23]\\.[0-9]{1,2}".r
       val artifactWithScalaVersion = artifactId.substring(artifactId.length - math.min(5, artifactId.length)) match {
         case scalaArtifactRegex(_*) => artifactId
-        case _ => artifactId + "_2.12"
+        case _ => artifactId + "_2.13"
       }
       s"SBT: ${pom.module.organization.value}:$artifactWithScalaVersion:${pom.version}:jar"
     }
@@ -341,9 +339,7 @@ case class GenIdeaImpl(evaluator: Evaluator,
       Tuple2(
         os.rel/".idea"/"modules.xml",
         allModulesXmlTemplate(
-          modules
-            .filter(!_._2.skipIdea)
-            .map { case (segments, mod) => moduleName(segments) }
+          modules.map { case (segments, mod) => moduleName(segments) }.sorted
         )
       ),
       Tuple2(
@@ -400,7 +396,7 @@ case class GenIdeaImpl(evaluator: Evaluator,
         Strict.Agg.from(generatedSourcePaths),
         compilerOutput,
         Strict.Agg.from(resolvedDeps.map(pathToLibName)),
-        Strict.Agg.from(mod.moduleDeps.map{ m => moduleName(moduleLabels(m))}.distinct),
+        Strict.Agg.from(mod.moduleDeps.filterNot(_.skipIdea).map{ m => moduleName(moduleLabels(m))}.distinct),
         isTest,
         facets
       )
@@ -501,8 +497,23 @@ case class GenIdeaImpl(evaluator: Evaluator,
       </component>
     </module>
   }
+
+  /** Try to make the file path a relative JAR URL (to PROJECT_DIR). */
+  def relativeJarUrl(path: os.Path) = {
+    // When coursier cache dir is on different logical drive than project dir
+    // we can not use a relative path. See issue: https://github.com/lihaoyi/mill/issues/905
+    val relPath = Try("$PROJECT_DIR$/" + path.relativeTo(cwd)).getOrElse(path)
+    if (path.ext == "jar") "jar://" + relPath + "!/" else "file://" + relPath
+  }
+
+  /** Try to make the file path a relative URL (to PROJECT_DIR). */
+  def relativeFileUrl(path: Path): String = {
+    // When coursier cache dir is on different logical drive than project dir
+    // we can not use a relative path. See issue: https://github.com/lihaoyi/mill/issues/905
+    "file://" + Try("$PROJECT_DIR$/" + path.relativeTo(cwd)).getOrElse(path)
+  }
+
   def libraryXmlTemplate(name: String, path: os.Path, sources: Option[os.Path], scalaCompilerClassPath: Loose.Agg[Path]): Elem = {
-    def url(path: os.Path): String = if (path.ext == "jar") "jar://" + path + "!/" else "file://" + path
     val isScalaLibrary = scalaCompilerClassPath.nonEmpty
     <component name="libraryTable">
       <library name={name} type={if(isScalaLibrary) "Scala" else null}>
@@ -510,18 +521,18 @@ case class GenIdeaImpl(evaluator: Evaluator,
         <properties>
           <compiler-classpath>
             {
-            scalaCompilerClassPath.toList.sortBy(_.wrapped).map(p => <root url={"file://" + p}/>)
+            scalaCompilerClassPath.toList.sortBy(_.wrapped).map(p => <root url={relativeFileUrl(p)}/>)
             }
           </compiler-classpath>
         </properties>
           }
         }
         <CLASSES>
-          <root url={url(path)}/>
+          <root url={relativeJarUrl(path)}/>
         </CLASSES>
         { if (sources.isDefined) {
           <SOURCES>
-            <root url={url(sources.get)}/>
+            <root url={relativeJarUrl(sources.get)}/>
           </SOURCES>
           }
         }
@@ -550,29 +561,32 @@ case class GenIdeaImpl(evaluator: Evaluator,
         }
         <exclude-output />
         {
-        for {
-          generatedSourcePath <- generatedSourcePaths.toSeq.distinct.sorted
-          path <- Seq(relify(generatedSourcePath))
-        } yield
-            <content url={"file://$MODULE_DIR$/" + path}>
-              <sourceFolder url={"file://$MODULE_DIR$/" + path} isTestSource={isTest.toString} generated="true" />
-            </content>
+          for (generatedSourcePath <- generatedSourcePaths.toSeq.distinct.sorted) yield {
+            val rel = relify(generatedSourcePath)
+              <content url={"file://$MODULE_DIR$/" + rel}>
+                <sourceFolder url={"file://$MODULE_DIR$/" + rel} isTestSource={isTest.toString} generated="true" />
+              </content>
+          }
         }
-        <content url={"file://$MODULE_DIR$/" + relify(basePath)}>
-          {
+
+        {
           // keep the "real" base path as last content, to ensure, Idea picks it up as "main" module dir
-          for (normalSourcePath <- normalSourcePaths.toSeq.sorted)
-            yield
-              <sourceFolder url={"file://$MODULE_DIR$/" + relify(normalSourcePath)} isTestSource={isTest.toString} />
+          for (normalSourcePath <- normalSourcePaths.toSeq.sorted) yield {
+            val rel = relify(normalSourcePath)
+            <content url={"file://$MODULE_DIR$/" + rel}>
+              <sourceFolder url={"file://$MODULE_DIR$/" + rel} isTestSource={isTest.toString} />
+            </content>
           }
-          {
+        }
+        {
           val resourceType = if (isTest) "java-test-resource" else "java-resource"
-          for (resourcePath <- resourcePaths.toSeq.sorted)
-            yield
-              <sourceFolder url={"file://$MODULE_DIR$/" + relify(resourcePath)} type={resourceType} />
+          for (resourcePath <- resourcePaths.toSeq.sorted) yield {
+              val rel = relify(resourcePath)
+              <content url={"file://$MODULE_DIR$/" + rel}>
+                <sourceFolder url={"file://$MODULE_DIR$/" + rel} type={resourceType} />
+              </content>
           }
-          <excludeFolder url={"file://$MODULE_DIR$/" +  relify(basePath) + "/target"} />
-        </content>
+        }
         <orderEntry type="inheritedJdk" />
         <orderEntry type="sourceFolder" forTests="false" />
         {
@@ -630,7 +644,7 @@ object GenIdeaImpl {
     * Create the module name (to be used by Idea) for the module based on it segments.
     * @see [[Module.millModuleSegments]]
     */
-  def moduleName(p: Segments): String = p.value.foldLeft(StringBuilder.newBuilder) {
+  def moduleName(p: Segments): String = p.value.foldLeft(new StringBuilder()) {
     case (sb, Segment.Label(s)) if sb.isEmpty => sb.append(s)
     case (sb, Segment.Cross(s)) if sb.isEmpty => sb.append(s.mkString("-"))
     case (sb, Segment.Label(s)) => sb.append(".").append(s)

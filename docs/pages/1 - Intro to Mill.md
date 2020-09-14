@@ -15,6 +15,11 @@ programming language, and can serve as a replacement for
 other language or platform via modules (written in Java or Scala) or through
 external subprocesses.
 
+If you are using Mill, you will probably find the following book by the Author
+useful in using Mill to the fullest:
+
+- [https://handsonscala.com/](https://handsonscala.com/)
+
 ## Installation 
 
 ### OS X
@@ -44,7 +49,7 @@ pkg install mill
 ### Windows
 
 To get started, download Mill from:
-https://github.com/lihaoyi/mill/releases/download/0.6.2/0.6.2-assembly, and save
+https://github.com/lihaoyi/mill/releases/download/0.7.4/0.7.4-assembly, and save
 it as `mill.bat`.
 
 If you're using [Scoop](https://scoop.sh) you can install Mill via
@@ -60,7 +65,9 @@ Mill also works on a sh environment on Windows (e.g.,
 [WSL](https://docs.microsoft.com/en-us/windows/wsl);
 to get started, follow the instructions in the [manual](#manual) section below. Note that:
 
-* In some environments (such as WSL), mill might have to be run using interactive mode (`-i`)
+* In some environments (such as WSL), mill might have to be run
+  without a server (using `-i`, `--interactive`, `--no-server`, or
+  `--repl`.)
 
 * On Cygwin, run the following after downloading mill:
 
@@ -81,7 +88,7 @@ To get started, download Mill and install it into your system via the following
 `curl`/`chmod` command:
 
 ```bash
-sudo curl -L https://github.com/lihaoyi/mill/releases/download/0.6.2/0.6.2 > /usr/local/bin/mill && sudo chmod +x /usr/local/bin/mill
+sudo curl -L https://github.com/lihaoyi/mill/releases/download/0.7.4/0.7.4 > /usr/local/bin/mill && sudo chmod +x /usr/local/bin/mill
 ```
 
 ### Bootstrap Scripts (Linux/OS-X Only)
@@ -90,7 +97,7 @@ If you are using Mill in a codebase, you can commit the bootstrap launcher as a
 `./mill` script in the project folder:
 
 ```bash
-curl -L https://github.com/lihaoyi/mill/releases/download/0.6.2/0.6.2 > mill && chmod +x mill
+curl -L https://github.com/lihaoyi/mill/releases/download/0.7.4/0.7.4 > mill && chmod +x mill
 ```
 
 Now, anyone who wants to work with the project can simply use the `./mill`
@@ -159,7 +166,7 @@ out/
 
 You can download an example project with this layout here:
 
-- [Example 1](example-1.zip)
+- [Example 1](https://github.com/lihaoyi/mill/releases/download/0.7.4/0.7.4-example-1.zip)
 
 The source code for this module would live in the `foo/src/` folder, matching
 the name you assigned to the module. Output for this module (compiled files,
@@ -383,7 +390,7 @@ mill -j 4 __.compile
 To use as much threads as your machine has (logical) processor cores use `--jobs 0`.
 To disable parallel execution use `--jobs 1`. This is currently the default.
 
-Please note the the maximal possible parallelism depends on your project.
+Please note that the maximal possible parallelism depends on your project.
 Tasks that depend on each other can't be processes in parallel.
 
 
@@ -674,7 +681,7 @@ mill clean __.compile
 ### Search for dependency updates
 
 ```bash
-$ mill mill.scalalib.Dependency/updates
+$ mill mill.scalalib.Dependency/showUpdates
 ```
 
 Mill can search for updated versions of your project's dependencies,
@@ -690,8 +697,8 @@ Current limitations:
 itself.
 
 ```bash
-mill mill.scalalib.Dependency/updates
-mill mill.scalalib.Dependency/updates --allowPreRelease true # also show pre-release versions
+mill mill.scalalib.Dependency/showUpdates
+mill mill.scalalib.Dependency/showUpdates --allowPreRelease true # also show pre-release versions
 ```
 
 ## IntelliJ Support
@@ -702,10 +709,10 @@ generate an IntelliJ project config for your build.
 This also configures IntelliJ to allow easy navigate & code-completion within
 your build file itself.
 
-## The Build Repl
+## The Build REPL
 
 ```bash
-$ mill -i
+$ mill --repl
 Loading...
 @ foo
 res0: foo.type = ammonite.predef.build#foo:4
@@ -742,10 +749,10 @@ res2: mill.scalalib.api.CompilationResult = CompilationResult(
 )
 ```
 
-You can run `mill -i` to open a build REPL; this is a Scala console with your
-`build.sc` loaded, which lets you run tasks interactively. The task-running
-syntax is slightly different from the command-line, but more in-line with how
-you would depend on tasks from within your build file.
+You can run `mill --repl` to open a build REPL; this is a Scala console with
+your `build.sc` loaded, which lets you run tasks interactively. The
+task-running syntax is slightly different from the command-line, but more
+in-line with how you would depend on tasks from within your build file.
 
 You can use this REPL to interactively explore your build to see what is available.
 
@@ -813,7 +820,7 @@ by overriding `artifactName` in the module you want to publish.
 
 You can download an example project with this layout here:
 
-- [Example 2](example-2.zip)
+- [Example 2](https://github.com/lihaoyi/mill/releases/download/0.7.4/0.7.4-example-2.zip)
 
 Which you can then publish using the `mill foo.publish` command, which takes
 your sonatype credentials (e.g. `lihaoyi:foobarbaz`) and GPG password as inputs:
@@ -826,12 +833,11 @@ Arguments provided did not match expected signature:
 
 publish
   --sonatypeCreds   String (format: "username:password")
-  --gpgPassphrase   String (default null)
-  --gpgKeyName      String (default null)
   --signed          Boolean (default true)
+  --gpgArgs         Seq[String] (default Seq("--batch", "--yes", "-a", "-b"))
   --readTimeout     Int (default 60000)
+  --release         Boolean (default true)
   --connectTimeout  Int (default 5000) 
-  --release         Boolean
   --awaitTimeout    Int (default 120000)
   --stagingRelease  Boolean (default true)
 ```
@@ -862,7 +868,7 @@ Each folder currently contains the following files:
 
 - `dest/`: a path for the `Task` to use either as a scratch space, or to place
   generated files that are returned using `PathRef`s. `Task`s should only output
-  files within their given `dest/` folder (available as `T.ctx.dest`) to avoid
+  files within their given `dest/` folder (available as `T.dest`) to avoid
   conflicting with other `Task`s, but files within `dest/` can be named
   arbitrarily.
 
@@ -928,3 +934,15 @@ variable or `.mill-version` file.
 
 Come by our [Gitter Channel](https://gitter.im/lihaoyi/mill) if you want to ask
 questions or say hi!
+
+## Running Mill with custom JVM options
+
+It's possible to pass JVM options to the Mill launcher. To do this you need to create a `.mill-jvm-opts` file in your project's root. This file should contain JVM options (strings, starting with `-X`), one per line. All other lines will be ignored.
+
+For example, if your build requires a lot of memory and bigger stack size, your `.mill-jvm-opts` could look like this:
+```
+-Xss10m
+-Xmx10G
+```
+
+The file name for passing JVM options to the Mill launcher is configurable. If for some reason you don't want to use `.mill-jvm-opts` file name, add `MILL_JVM_OPTS_PATH` environment variable with any other file name.

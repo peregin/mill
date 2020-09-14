@@ -17,9 +17,14 @@ If you want to use Mill in your own projects, check out our documentation:
 
 - [Documentation](http://www.lihaoyi.com/mill/)
 
-If you use Mill and like it, please support it by donating to our Patreon:
+If you use Mill and like it, you will probably enjoy the following book by the Author:
 
-- [https://www.patreon.com/lihaoyi](https://www.patreon.com/lihaoyi)
+- [*Hands-on Scala Programming*](https://www.handsonscala.com/)
+
+*Hands-on Scala* has a *Chapter 10: Static Build Pipelines* dedicated to Mill,
+but rest of the book introduces other libraries and tools in a similar style.
+*Hands-on Scala* is a great way to level up your skills in Scala in general 
+and Mill in particular
 
 The remainder of this readme is developer-documentation targeted at people who
 wish to work on Mill's own codebase. The developer docs assume you have read
@@ -170,8 +175,76 @@ corresponding version of Mill.
 ### master
 
 *For details refer to
-[milestone after 0.6.2](https://github.com/lihaoyi/mill/milestone/37?closed=1)
-and the [list of commits](https://github.com/lihaoyi/mill/compare/0.6.2...master).*
+[milestone after 0.8.0](https://github.com/lihaoyi/mill/milestone/44?closed=1)
+and the [list of commits](https://github.com/lihaoyi/mill/compare/0.8.0...master).*
+
+### 0.8.0 - 2020-07-20
+
+* Bump external dependencies: uPickle 1.2.0, Ammonite 2.2.0, etc.
+* Use default coursier repos (#931)
+* Work around relative paths issue on windows (#936)
+* Support Scala.js versions >1.0.0 (#934)
+
+
+*For details refer to
+[milestone 0.8.0](https://github.com/lihaoyi/mill/milestone/43?closed=1)
+and the [list of commits](https://github.com/lihaoyi/mill/compare/0.7.4...0.8.0).*
+
+### 0.7.4 - 2020-07-03
+
+* new command line options `--repl` and `--no-server`, deprecated `--interactive` option
+* Support for Scala.js 1.1
+* Fixed missing source maps for Scala.js 1.0 and 1.1
+* Improved BSP contrib module
+
+*For details refer to
+[milestone 0.7.4](https://github.com/lihaoyi/mill/milestone/42?closed=1)
+and the [list of commits](https://github.com/lihaoyi/mill/compare/0.7.3...0.7.4).*
+
+### 0.7.3
+
+*For details refer to
+[milestone 0.7.3](https://github.com/lihaoyi/mill/milestone/41?closed=1)
+and the [list of commits](https://github.com/lihaoyi/mill/compare/0.7.2...0.7.3).*
+
+### 0.7.2 - 2020-05-19
+
+*For details refer to
+[milestone 0.7.2](https://github.com/lihaoyi/mill/milestone/40?closed=1)
+and the [list of commits](https://github.com/lihaoyi/mill/compare/0.7.1...0.7.2).*
+
+### 0.7.1 - 2020-05-17
+
+*For details refer to
+[milestone 0.7.1](https://github.com/lihaoyi/mill/milestone/39?closed=1)
+and the [list of commits](https://github.com/lihaoyi/mill/compare/0.7.0...0.7.1).*
+
+### 0.7.0 - 2020-05-15
+
+- Greatly improved parallel builds via `-j <n>`/`--jobs <n>`, with better scheduling
+  and utilization of multiple cores
+- `build.sc` files now uses Scala 2.13.2
+- Avoid duplicate target resolution with `mill resolve __`
+- Add ability to pass GPG arguments to publish via `--gpgArgs`
+- `-w`/`--watch` now works for `T.source` targets
+
+*For details refer to
+[milestone 0.7.0](https://github.com/lihaoyi/mill/milestone/37?closed=1)
+and the [list of commits](https://github.com/lihaoyi/mill/compare/0.6.3...master).*
+
+
+### 0.6.3 - 2020-05-10
+
+- Finished incomplete support to publish extra artifacts to IVY repositories (`publishLocal`)
+- Improved Sonatype uploads
+- `GenIdea`: improvements for shared source dirs and skipped modules
+- `ScoverageModule`: Some refactorings to allow better customization 
+- More robust classpath handling under Windows
+
+*For details refer to
+[milestone 0.6.3](https://github.com/lihaoyi/mill/milestone/38?closed=1)
+and the [list of commits](https://github.com/lihaoyi/mill/compare/0.6.2...0.6.3).*
+
 
 ### 0.6.2 - 2020-04-22
 

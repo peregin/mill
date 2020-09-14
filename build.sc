@@ -6,7 +6,7 @@ import $ivy.`org.scalaj::scalaj-http:2.4.2`
 import coursier.maven.MavenRepository
 import mill._
 import mill.scalalib._
-import publish._
+import mill.scalalib.publish._
 import mill.modules.Jvm.createAssembly
 
 object Deps {
@@ -17,13 +17,14 @@ object Deps {
     val scalajsTools = ivy"org.scala-js::scalajs-tools:0.6.32"
   }
 
-  object Scalajs_1_0 {
-    val scalajsEnvJsdomNodejs =  ivy"org.scala-js::scalajs-env-jsdom-nodejs:1.0.0"
-    val scalajsEnvNodejs =  ivy"org.scala-js::scalajs-env-nodejs:1.0.0"
+  object Scalajs_1 {
+    val scalajsEnvJsdomNodejs =  ivy"org.scala-js::scalajs-env-jsdom-nodejs:1.1.0"
+    val scalajsEnvNodejs =  ivy"org.scala-js::scalajs-env-nodejs:1.1.1"
     val scalajsEnvPhantomjs =  ivy"org.scala-js::scalajs-env-phantomjs:1.0.0"
-    val scalajsSbtTestAdapter = ivy"org.scala-js::scalajs-sbt-test-adapter:1.0.0"
-    val scalajsLinker = ivy"org.scala-js::scalajs-linker:1.0.0"
+    val scalajsSbtTestAdapter = ivy"org.scala-js::scalajs-sbt-test-adapter:1.1.1"
+    val scalajsLinker = ivy"org.scala-js::scalajs-linker:1.1.1"
   }
+
   object Scalanative_0_3 {
     val scalanativeTools = ivy"org.scala-native::tools:0.3.9"
     val scalanativeUtil = ivy"org.scala-native::util:0.3.9"
@@ -39,9 +40,10 @@ object Deps {
   }
 
   val acyclic = ivy"com.lihaoyi::acyclic:0.2.0"
-  val ammonite = ivy"com.lihaoyi:::ammonite:2.1.1"
+  val ammonite = ivy"com.lihaoyi:::ammonite:2.2.0"
+  val scalametaTrees = ivy"org.scalameta::trees:4.3.7"
   val bloopConfig = ivy"ch.epfl.scala::bloop-config:1.4.0-RC1"
-  val coursier = ivy"io.get-coursier::coursier:2.0.0-RC5-3"
+  val coursier = ivy"io.get-coursier::coursier:2.0.0-RC6-25"
   val flywayCore = ivy"org.flywaydb:flyway-core:6.0.1"
   val graphvizJava = ivy"guru.nidi:graphviz-java:0.8.3"
   val ipcsocket = ivy"org.scala-sbt.ipcsocket:ipcsocket:1.0.0"
@@ -53,25 +55,26 @@ object Deps {
   val jettyServer = ivy"org.eclipse.jetty:jetty-server:8.1.16.v20140903"
   val jettyWebsocket =  ivy"org.eclipse.jetty:jetty-websocket:8.1.16.v20140903"
   val jgraphtCore = ivy"org.jgrapht:jgrapht-core:1.3.0"
-  
+
   val jna = ivy"net.java.dev.jna:jna:5.0.0"
   val jnaPlatform = ivy"net.java.dev.jna:jna-platform:5.0.0"
-  
+
   val junitInterface = ivy"com.novocode:junit-interface:0.11"
   val lambdaTest = ivy"de.tototec:de.tobiasroeser.lambdatest:0.7.0"
-  val osLib = ivy"com.lihaoyi::os-lib:0.6.3"
+  val osLib = ivy"com.lihaoyi::os-lib:0.7.1"
   val testng = ivy"org.testng:testng:6.11"
   val sbtTestInterface = ivy"org.scala-sbt:test-interface:1.0"
   def scalaCompiler(scalaVersion: String) = ivy"org.scala-lang:scala-compiler:${scalaVersion}"
   val scalafmtDynamic = ivy"org.scalameta::scalafmt-dynamic:2.2.1"
   def scalaReflect(scalaVersion: String) = ivy"org.scala-lang:scala-reflect:${scalaVersion}"
   def scalacScoveragePlugin = ivy"org.scoverage::scalac-scoverage-plugin:1.4.1"
-  val sourcecode = ivy"com.lihaoyi::sourcecode:0.2.0"
-  val ujsonCirce = ivy"com.lihaoyi::ujson-circe:0.9.8"
-  val upickle = ivy"com.lihaoyi::upickle:1.0.0"
-  val utest = ivy"com.lihaoyi::utest:0.7.3"
+  val sourcecode = ivy"com.lihaoyi::sourcecode:0.2.1"
+  val ujsonCirce = ivy"com.lihaoyi::ujson-circe:1.2.0"
+  val upickle = ivy"com.lihaoyi::upickle:1.2.0"
+  val utest = ivy"com.lihaoyi::utest:0.7.4"
   val zinc = ivy"org.scala-sbt::zinc:1.4.0-M1"
   val bsp = ivy"ch.epfl.scala:bsp4j:2.0.0-M4"
+  val jarjarabrams = ivy"com.eed3si9n.jarjarabrams::jarjar-abrams-core:0.3.0"
 }
 
 trait MillPublishModule extends PublishModule{
@@ -93,7 +96,7 @@ trait MillPublishModule extends PublishModule{
   def javacOptions = Seq("-source", "1.8", "-target", "1.8")
 }
 trait MillApiModule extends MillPublishModule with ScalaModule{
-  def scalaVersion = T{ "2.13.1" }
+  def scalaVersion = T{ "2.13.2" }
   def compileIvyDeps = Agg(Deps.acyclic)
   def scalacOptions = Seq("-P:acyclic:force")
   def scalacPluginIvyDeps = Agg(Deps.acyclic)
@@ -102,7 +105,7 @@ trait MillApiModule extends MillPublishModule with ScalaModule{
   )
 }
 trait MillModule extends MillApiModule { outer =>
-  def scalaVersion = T{ "2.13.1" }
+  def scalaVersion = T{ "2.13.2" }
   def scalacPluginClasspath =
     super.scalacPluginClasspath() ++ Seq(main.moduledefs.jar())
 
@@ -160,27 +163,29 @@ object main extends MillModule {
 
     def ivyDeps = Agg(
       Deps.ammonite,
+      Deps.scalametaTrees.forceVersion(),
       Deps.coursier,
       // Necessary so we can share the JNA classes throughout the build process
       Deps.jna,
       Deps.jnaPlatform,
-      Deps.coursier
+      Deps.coursier,
+      Deps.jarjarabrams
     )
 
     def generatedSources = T {
       val dest = T.ctx.dest
-      val version = publishVersion()
-      writeBuildInfo(dest, version)
+      writeBuildInfo(dest, scalaVersion(), publishVersion())
       shared.generateCoreSources(dest)
       Seq(PathRef(dest))
     }
 
-    def writeBuildInfo(dir : os.Path, version : String) = {
+    def writeBuildInfo(dir : os.Path, scalaVersion: String, millVersion: String) = {
       val code = s"""
         |package mill
         |
         |object BuildInfo {
-        |  val millVersion = "$version"
+        |  val scalaVersion = "$scalaVersion"
+        |  val millVersion = "$millVersion"
         |}
       """.stripMargin.trim
 
@@ -189,7 +194,7 @@ object main extends MillModule {
   }
 
   object moduledefs extends MillPublishModule with ScalaModule{
-    def scalaVersion = T{ "2.13.1" }
+    def scalaVersion = T{ "2.13.2" }
     def ivyDeps = Agg(
       Deps.scalaCompiler(scalaVersion()),
       Deps.sourcecode,
@@ -307,7 +312,7 @@ object scalajslib extends MillModule {
   def testArgs = T{
     val mapping = Map(
       "MILL_SCALAJS_WORKER_0_6" -> worker("0.6").compile().classes.path,
-      "MILL_SCALAJS_WORKER_1_0" -> worker("1.0").compile().classes.path
+      "MILL_SCALAJS_WORKER_1" -> worker("1").compile().classes.path
     )
     Seq("-Djna.nosys=true") ++
     scalalib.worker.testArgs() ++
@@ -319,7 +324,7 @@ object scalajslib extends MillModule {
     def moduleDeps = Seq(main.api)
     def ivyDeps = Agg(Deps.sbtTestInterface)
   }
-  object worker extends Cross[WorkerModule]("0.6", "1.0")
+  object worker extends Cross[WorkerModule]("0.6", "1")
   class WorkerModule(scalajsWorkerVersion: String) extends MillApiModule{
     def moduleDeps = Seq(scalajslib.api)
     def ivyDeps = scalajsWorkerVersion match {
@@ -332,13 +337,13 @@ object scalajslib extends MillModule {
           Deps.jettyServer,
           Deps.javaxServlet
         )
-      case "1.0" =>
+      case "1" =>
         Agg(
-          Deps.Scalajs_1_0.scalajsLinker,
-          Deps.Scalajs_1_0.scalajsSbtTestAdapter,
-          Deps.Scalajs_1_0.scalajsEnvNodejs,
-          Deps.Scalajs_1_0.scalajsEnvJsdomNodejs,
-          Deps.Scalajs_1_0.scalajsEnvPhantomjs,
+          Deps.Scalajs_1.scalajsLinker,
+          Deps.Scalajs_1.scalajsSbtTestAdapter,
+          Deps.Scalajs_1.scalajsEnvNodejs,
+          Deps.Scalajs_1.scalajsEnvJsdomNodejs,
+          Deps.Scalajs_1.scalajsEnvPhantomjs,
           Deps.jettyWebsocket,
           Deps.jettyServer,
           Deps.javaxServlet
@@ -589,37 +594,85 @@ def launcherScript(shellJvmArgs: Seq[String],
   mill.modules.Jvm.universalScript(
     shellCommands = {
       val jvmArgsStr = shellJvmArgs.mkString(" ")
-      def java(mainClass: String) =
-        s"""exec $$JAVACMD $jvmArgsStr $$JAVA_OPTS -cp "${shellClassPath.mkString(":")}" $mainClass "$$@""""
+      def java(mainClass: String, passMillJvmOpts: Boolean) = {
+        val millJvmOpts = if (passMillJvmOpts) "$mill_jvm_opts" else ""
+        s"""exec $$JAVACMD $jvmArgsStr $$JAVA_OPTS $millJvmOpts -cp "${shellClassPath.mkString(":")}" $mainClass "$$@""""
+      }
 
       s"""if [ -z "$$JAVA_HOME" ] ; then
          |  JAVACMD="java"
          |else
          |  JAVACMD="$$JAVA_HOME/bin/java"
          |fi
-         |case "$$1" in
-         |  -i | --interactive )
-         |    ${java("mill.MillMain")}
-         |    ;;
-         |  *)
-         |    ${java("mill.main.client.MillClientMain")}
-         |    ;;
-         |esac""".stripMargin
+         |
+         |mill_jvm_opts=""
+         |init_mill_jvm_opts () {
+         |  if [ -z $$MILL_JVM_OPTS_PATH ] ; then
+         |    mill_jvm_opts_file=".mill-jvm-opts"
+         |  else
+         |    mill_jvm_opts_file=$$MILL_JVM_OPTS_PATH
+         |  fi
+         |
+         |  if [ -f "$$mill_jvm_opts_file" ] ; then
+         |    while IFS= read line
+         |    do
+         |      case $$line in
+         |        "-X"*) mill_jvm_opts="$${mill_jvm_opts} $$line"
+         |      esac
+         |    done <"$$mill_jvm_opts_file"
+         |  fi
+         |}
+         |
+         |# Client-server mode doesn't seem to work on WSL, just disable it for now
+         |# https://stackoverflow.com/a/43618657/871202
+         |if grep -qEi "(Microsoft|WSL)" /proc/version > /dev/null 2> /dev/null ; then
+         |    init_mill_jvm_opts
+         |    COURSIER_CACHE=.coursier ${java("mill.MillMain", true)}
+         |else
+         |    case "$$1" in
+         |      -i | --interactive | --repl | --no-server )
+         |        init_mill_jvm_opts
+         |        ${java("mill.MillMain", true)}
+         |        ;;
+         |      *)
+         |        ${java("mill.main.client.MillClientMain", false)}
+         |        ;;
+         |esac
+         |fi
+         |""".stripMargin
     },
     cmdCommands = {
       val jvmArgsStr = cmdJvmArgs.mkString(" ")
-      def java(mainClass: String) =
-        s""""%JAVACMD%" $jvmArgsStr %JAVA_OPTS% -cp "${cmdClassPath.mkString(";")}" $mainClass %*"""
+      def java(mainClass: String, passMillJvmOpts: Boolean) = {
+        val millJvmOpts = if (passMillJvmOpts) "!mill_jvm_opts!" else ""
+        s""""%JAVACMD%" $jvmArgsStr %JAVA_OPTS% $millJvmOpts -cp "${cmdClassPath.mkString(";")}" $mainClass %*"""
+      }
 
-      s"""set "JAVACMD=java.exe"
+      s"""setlocal EnableDelayedExpansion
+         |set "JAVACMD=java.exe"
          |if not "%JAVA_HOME%"=="" set "JAVACMD=%JAVA_HOME%\\bin\\java.exe"
          |if "%1" == "-i" set _I_=true
          |if "%1" == "--interactive" set _I_=true
+         |if "%1" == "--repl" set _I_=true
+         |if "%1" == "--no-server" set _I_=true
+         |
+         |set "mill_jvm_opts="
+         |set "mill_jvm_opts_file=.mill-jvm-opts"
+         |if not "%MILL_JVM_OPTS_PATH%"=="" set "mill_jvm_opts_file=%MILL_JVM_OPTS_PATH%"
+         |
          |if defined _I_ (
-         |  ${java("mill.MillMain")}
+         |  if exist %mill_jvm_opts_file% (
+         |    for /f "delims=" %%G in (%mill_jvm_opts_file%) do (
+         |      set line=%%G
+         |      if "!line:~0,2!"=="-X" set "mill_jvm_opts=!mill_jvm_opts! !line!"
+         |    )
+         |  )
+         |  ${java("mill.MillMain", true)}
          |) else (
-         |  ${java("mill.main.client.MillClientMain")}
-         |)""".stripMargin
+         |  ${java("mill.main.client.MillClientMain", false)}
+         |)
+         |endlocal
+         |""".stripMargin
     }
   )
 }
@@ -656,8 +709,8 @@ object dev extends MillModule{
     PathRef(outputPath)
   }
 
-  override def extraPublish: T[Seq[PublishModule.ExtraPublish]] = T{ Seq(
-    PublishModule.ExtraPublish(assembly(), "jars", "-assembly.jar")
+  override def extraPublish: T[Seq[PublishInfo]] = T{ Seq(
+    PublishInfo(file = assembly(), classifier = Some("assembly"), ivyConfig = "compile")
   )}
 
   def assembly = T{
@@ -688,7 +741,7 @@ object dev extends MillModule{
     // for more detailed explanation
     val isWin = scala.util.Properties.isWin
     val classpath = runClasspath().map{ pathRef =>
-      val path = if (isWin) "/" + pathRef.path.toString.replace("\\", "/") 
+      val path = if (isWin) "/" + pathRef.path.toString.replace("\\", "/")
                  else pathRef.path.toString
       if (path.endsWith(".jar")) path
       else path + "/"
@@ -844,6 +897,12 @@ def uploadToGithub(authKey: String) = T.command{
       .asString
   }
 
+  for(example <- Seq("example-1", "example-2", "example-3")) {
+    os.copy(os.pwd / "example" / example, T.dest / example)
+    os.copy(launcher().path, T.dest / example / "mill")
+    os.proc('zip, "-r", T.dest / s"$example.zip", example).call(cwd = T.dest)
+    upload.apply(T.dest / s"$example.zip", releaseTag, label + "-" + example + ".zip", authKey)
+  }
   upload.apply(assembly().path, releaseTag, label + "-assembly", authKey)
 
   upload.apply(launcher().path, releaseTag, label, authKey)

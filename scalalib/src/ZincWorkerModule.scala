@@ -1,25 +1,19 @@
 package mill.scalalib
 
-
-import coursier.maven.MavenRepository
 import mill.Agg
 import mill.T
-import mill.api.{Ctx, KeyedLockedCache, Loose, FixSizedCache}
-import mill.define.{Discover, Worker}
+import mill.api.{Ctx, FixSizedCache, KeyedLockedCache}
+import mill.define.{Command, Discover, ExternalModule, Worker}
 import mill.scalalib.Lib.resolveDependencies
 import mill.scalalib.api.Util.{isBinaryBridgeAvailable, isDotty}
 import mill.scalalib.api.ZincWorkerApi
 import mill.util.JsonFormatters._
 
-object ZincWorkerModule extends mill.define.ExternalModule with ZincWorkerModule {
+object ZincWorkerModule extends ExternalModule with ZincWorkerModule with CoursierModule {
   lazy val millDiscover = Discover[this.type]
 }
-trait ZincWorkerModule extends mill.Module {
-  def repositories = Seq(
-    coursier.LocalRepositories.ivy2Local,
-    MavenRepository("https://repo1.maven.org/maven2"),
-    MavenRepository("https://oss.sonatype.org/content/repositories/releases")
-  )
+
+trait ZincWorkerModule extends mill.Module with OfflineSupportModule { self: CoursierModule =>
 
   def classpath = T{
     mill.modules.Util.millProjectModule("MILL_SCALA_WORKER", "mill-scalalib-worker", repositories)
@@ -119,6 +113,21 @@ trait ZincWorkerModule extends mill.Module {
       Seq(ivy"org.scala-sbt:compiler-interface:${Versions.zinc}"),
       ctx = Some(implicitly[mill.util.Ctx.Log])
     )
+  }
+
+  override def prepareOffline(): Command[Unit] = T.command {
+    super.prepareOffline()
+    classpath()
+    compilerInterfaceClasspath()
+    // worker()
+    ()
+  }
+
+  def prepareOfflineCompiler(scalaVersion: String, scalaOrganization: String): Command[Unit] = T.command {
+    classpath()
+    val cp = compilerInterfaceClasspath()
+    scalaCompilerBridgeJar(scalaVersion, scalaOrganization, cp)
+    ()
   }
 
 }

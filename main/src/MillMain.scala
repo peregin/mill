@@ -13,13 +13,8 @@ import mill.api.DummyInputStream
 object MillMain {
 
   def main(args: Array[String]): Unit = {
-    // Remove the trailing interactive parameter, we already handled it on call site
-    val as = args match {
-      case Array(s, _*) if s == "-i" || s == "--interactive" => args.tail
-      case _ => args
-    }
     val (result, _) = main0(
-      as,
+      args,
       None,
       ammonite.Main.isInteractive(),
       System.in,
@@ -51,11 +46,32 @@ object MillMain {
 
     val removed = Set("predef-code", "no-home-predef")
 
+    var repl = false
+    val replSignature = Arg[Config, Unit](
+      "repl", None,
+      "Run Mill in interactive mode and start a build REPL. In this mode, no mill server will be used. Must be the first argument.",
+      (c, v) => {
+        repl = true
+        c
+      }
+    )
+
+    var noServer = false
+    val noServerSignature = Arg[Config, Unit](
+      "no-server", None,
+      "Run Mill in interactive mode, suitable for opening REPLs and taking user input. In this mode, no mill server will be used. Must be the first argument.",
+      (c, v) => {
+        noServer = true
+        c
+      }
+    )
+
     var interactive = false
     val interactiveSignature = Arg[Config, Unit](
       "interactive", Some('i'),
-      "Run Mill in interactive mode, suitable for opening REPLs and taking user input. In this mode, no mill server will be used.",
+      "Run Mill in interactive mode, suitable for opening REPLs and taking user input. In this mode, no mill server will be used. Must be the first argument.",
       (c, v) => {
+        // check for stdin == DummyInputStream, which means this wasn't handled
         interactive = true
         c
       }
@@ -67,6 +83,16 @@ object MillMain {
       doc = "Show mill version and exit.",
       (c, v) => {
         showVersion = true
+        c
+      }
+    )
+
+    var ringBell = false
+    val ringBellSignature = Arg[Config, Unit](
+      name = "bell", Some('b'),
+      doc = "Ring the bell once if the run completes successfully, twice if it fails.",
+      (c, v) => {
+        ringBell = true
         c
       }
     )
@@ -126,24 +152,31 @@ object MillMain {
     val millArgSignature =
       Cli.genericSignature.filter(a => !removed(a.name)) ++
         Seq(
+          replSignature,
+          noServerSignature,
           interactiveSignature,
           showVersionSignature,
           disableTickerSignature,
           debugLogSignature,
           keepGoingSignature,
           extraSystemPropertiesSignature,
-          threadCountSignature
-          )
+          threadCountSignature,
+          ringBellSignature
+        )
 
-    Cli.groupArgs(
+    val (success, newStateCache) = Cli.groupArgs(
       args.toList,
       millArgSignature,
       Cli.Config(home = millHome, remoteLogging = false)
     ) match {
-      case _ if interactive =>
+      case _ if (interactive || repl || noServer)
+                  && stdin == DummyInputStream =>
         // because this parameter was handled earlier (when in first position),
         // here it is too late and we can't handle it properly.
-        stderr.println("-i/--interactive must be passed in as the first argument")
+        stderr.println("-i/--interactive/--repl/--no-server must be passed in as the first argument")
+        (false, None)
+      case _ if Seq(interactive, repl, noServer).count(identity) > 1 =>
+        stderr.println("Only one of -i/--interactive, --repl, or --no-server may be given")
         (false, None)
       case Left(msg) =>
         stderr.println(msg)
@@ -168,16 +201,24 @@ object MillMain {
         (true, None)
 
       case Right((cliConfig, leftoverArgs)) =>
-
-        val repl = leftoverArgs.isEmpty
-        if (repl && stdin == DummyInputStream) {
-          stderr.println("Build repl needs to be run with the -i/--interactive flag")
+        val useRepl = repl || (interactive && leftoverArgs.isEmpty)
+        if ( repl && leftoverArgs.nonEmpty ) {
+          stderr.println("No target may be provided with the --repl flag")
+          (false, stateCache)
+        } else if ( leftoverArgs.isEmpty && noServer ) {
+          stderr.println("A target must be provided when not starting a build REPL")
+          (false, stateCache)
+        } else if ( useRepl && stdin == DummyInputStream ) {
+          stderr.println("Build REPL needs to be run with the -i/--interactive/--repl flag")
           (false, stateCache)
         }else{
+          if ( useRepl && interactive ) {
+            stderr.println("WARNING: Starting a build REPL without --repl is deprecated")
+          }
           val systemProps = initialSystemProperties ++ extraSystemProperties
 
           val config =
-            if(!repl) cliConfig
+            if(!useRepl) cliConfig
             else cliConfig.copy(
               predefCode =
                 s"""import $$file.build, build._
@@ -190,7 +231,7 @@ object MillMain {
                   |  build.millDiscover,
                   |  debugLog = $debugLog,
                   |  keepGoing = $keepGoing,
-                  |  systemProperties = ${systemProps},
+                  |  systemProperties = ${systemProps.toSeq.map(p => s""""${p._1}" -> "${p._2}"""").mkString("Map[String,String](", ",", ")")},
                   |  threadCount = $threadCount
                   |)
                   |repl.pprinter() = replApplyHandler.pprinter
@@ -201,7 +242,8 @@ object MillMain {
               )
 
             val runner = new mill.main.MainRunner(
-              config.copy(colored = config.colored orElse Option(mainInteractive)),
+              config,
+              mainInteractive,
               disableTicker,
               stdout, stderr, stdin,
               stateCache,
@@ -210,7 +252,8 @@ object MillMain {
               debugLog = debugLog,
               keepGoing = keepGoing,
               systemProperties = systemProps,
-              threadCount = threadCount
+              threadCount = threadCount,
+              ringBell = ringBell
             )
 
             if (mill.main.client.Util.isJava9OrAbove) {
@@ -221,7 +264,7 @@ object MillMain {
               }
             }
 
-            if (repl) {
+            if (useRepl) {
               runner.printInfo("Loading...")
               (runner.watchLoop(isRepl = true, printing = false, _.run()), runner.stateCache)
             } else {
@@ -230,5 +273,15 @@ object MillMain {
           }
 
       }
+
+    if (ringBell){
+      if (success) println("\u0007")
+      else {
+        println("\u0007")
+        Thread.sleep(250)
+        println("\u0007")
+      }
+    }
+    (success, newStateCache)
   }
 }

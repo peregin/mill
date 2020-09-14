@@ -1,7 +1,6 @@
 package mill.main
 
 import java.nio.file.NoSuchFileException
-
 import ammonite.interp.Interpreter
 import ammonite.runtime.SpecialClassLoader
 import ammonite.util.Util.CodeSource
@@ -9,10 +8,9 @@ import ammonite.util.{Name, Res, Util}
 import mill.define
 import mill.define._
 import mill.eval.{Evaluator, PathRef, Result}
-import mill.util.{EitherOps, ParseArgs, Watched}
+import mill.util.{EitherOps, ParseArgs, PrintLogger, Watched}
 import mill.api.Logger
 import mill.api.Strict.Agg
-
 import scala.collection.mutable
 import scala.reflect.ClassTag
 
@@ -28,7 +26,7 @@ object RunScript{
                 instantiateInterpreter: => Either[(Res.Failing, Seq[(ammonite.interp.Watchable, Long)]), ammonite.interp.Interpreter],
                 scriptArgs: Seq[String],
                 stateCache: Option[Evaluator.State],
-                log: Logger,
+                log: PrintLogger,
                 env : Map[String, String],
                 keepGoing: Boolean,
                 systemProperties: Map[String, String],
@@ -121,7 +119,6 @@ object RunScript{
       } catch {
         case e: Throwable => Res.Exception(e, "")
       }
-//      _ <- Res(consistencyCheck(mapping))
     } yield module
   }
 
@@ -138,7 +135,6 @@ object RunScript{
           yield {
             val (rootModule, crossSelectors) = res
 
-
             try {
               // We inject the `evaluator.rootModule` into the TargetScopt, rather
               // than the `rootModule`, because even if you are running an external
@@ -146,10 +142,7 @@ object RunScript{
               // main build. Resolving targets from external builds as CLI arguments
               // is not currently supported
               mill.eval.Evaluator.currentEvaluator.set(evaluator)
-              resolver.resolve(
-                sel.value.toList, rootModule, rootModule.millDiscover,
-                args, crossSelectors.toList, Nil
-              )
+              resolver.resolve(sel.value.toList, rootModule, rootModule.millDiscover, args, crossSelectors.toList)
             } finally {
               mill.eval.Evaluator.currentEvaluator.set(null)
             }
@@ -210,7 +203,8 @@ object RunScript{
     val watched = evaluated.results
       .iterator
       .collect {
-        case (t: define.Sources, Result.Success(p: Seq[PathRef])) => p
+        case (t: define.Sources, Result.Success(ps: Seq[PathRef])) => ps
+        case (t: define.Source, Result.Success(p: PathRef)) => Seq(p)
       }
       .flatten
       .toSeq
@@ -244,7 +238,7 @@ object RunScript{
           t match {
             case t: mill.define.NamedTask[_] =>
               val jsonFile = Evaluator
-                .resolveDestPaths(evaluator.outPath, t.ctx.segments)
+                .resolveDestPaths(evaluator.outPath, t.ctx.segments, t.ctx.foreign)
                 .meta
               val metadata = upickle.default.read[Evaluator.Cached](ujson.read(jsonFile.toIO))
               Some(metadata.value)

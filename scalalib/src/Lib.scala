@@ -71,16 +71,34 @@ object Lib{
   }
   def scalaCompilerIvyDeps(scalaOrganization: String, scalaVersion: String) =
     if (mill.scalalib.api.Util.isDotty(scalaVersion))
-      Agg(ivy"$scalaOrganization::dotty-compiler:$scalaVersion".forceVersion())
+      Agg(
+        ivy"$scalaOrganization::dotty-compiler:$scalaVersion".forceVersion()
+      )
     else
       Agg(
         ivy"$scalaOrganization:scala-compiler:$scalaVersion".forceVersion(),
         ivy"$scalaOrganization:scala-reflect:$scalaVersion".forceVersion()
       )
 
-  def scalaRuntimeIvyDeps(scalaOrganization: String, scalaVersion: String) = Agg[Dep](
-    ivy"$scalaOrganization:scala-library:$scalaVersion".forceVersion()
-  )
+  def scalaDocIvyDeps(scalaOrganization: String, scalaVersion: String) =
+    if (mill.scalalib.api.Util.isDotty(scalaVersion))
+      Agg(
+        ivy"$scalaOrganization::dotty-doc:$scalaVersion".forceVersion()
+      )
+    else
+      // in Scala <= 2.13, the scaladoc tool is included in the compiler
+      scalaCompilerIvyDeps(scalaOrganization, scalaVersion)
+
+  def scalaRuntimeIvyDeps(scalaOrganization: String, scalaVersion: String) =
+    if (mill.scalalib.api.Util.isDotty(scalaVersion))
+      Agg(
+        // note that dotty-library has a binary version suffix, hence the :: is necessary here
+        ivy"$scalaOrganization::dotty-library:$scalaVersion".forceVersion()
+      )
+    else
+      Agg(
+        ivy"$scalaOrganization:scala-library:$scalaVersion".forceVersion()
+      )
 
   def listClassFiles(base: os.Path): Iterator[String] = {
     if (os.isDir(base)) os.walk(base).toIterator.filter(_.ext == "class").map(_.relativeTo(base).toString)

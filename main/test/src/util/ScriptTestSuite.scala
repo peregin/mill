@@ -22,6 +22,7 @@ abstract class ScriptTestSuite(fork: Boolean) extends TestSuite{
   val threadCount = Try(sys.props("MILL_THREAD_COUNT").toInt).toOption
   lazy val runner = new mill.main.MainRunner(
     config = ammonite.main.Cli.Config(wd = wd),
+    mainInteractive = false,
     disableTicker = disableTicker,
     outprintStream = stdOutErr,
     errPrintStream = stdOutErr,
@@ -32,7 +33,8 @@ abstract class ScriptTestSuite(fork: Boolean) extends TestSuite{
     debugLog = debugLog,
     keepGoing = keepGoing,
     systemProperties = systemProperties,
-    threadCount = threadCount
+    threadCount = threadCount,
+    ringBell = false
   )
   def eval(s: String*) = {
     if (!fork) runner.runScript(workspacePath / buildPath , s.toList)
@@ -63,5 +65,6 @@ abstract class ScriptTestSuite(fork: Boolean) extends TestSuite{
     // destination instead of the folder containing the wrapper.
 
     os.copy(scriptSourcePath, workspacePath)
+    workspacePath
   }
 }

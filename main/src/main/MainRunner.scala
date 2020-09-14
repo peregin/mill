@@ -18,6 +18,7 @@ import mill.define.Segments
   * `scriptCodeWrapper` or with a persistent evaluator between runs.
   */
 class MainRunner(val config: ammonite.main.Cli.Config,
+                 mainInteractive: Boolean,
                  disableTicker: Boolean,
                  outprintStream: PrintStream,
                  errPrintStream: PrintStream,
@@ -28,7 +29,8 @@ class MainRunner(val config: ammonite.main.Cli.Config,
                  debugLog: Boolean,
                  keepGoing: Boolean,
                  systemProperties: Map[String, String],
-                 threadCount: Option[Int])
+                 threadCount: Option[Int],
+                 ringBell: Boolean)
   extends ammonite.MainRunner(
     config, outprintStream, errPrintStream,
     stdIn, outprintStream, errPrintStream
@@ -37,7 +39,12 @@ class MainRunner(val config: ammonite.main.Cli.Config,
   var stateCache  = stateCache0
 
   override def watchAndWait(watched: Seq[(ammonite.interp.Watchable, Long)]) = {
-    printInfo(s"Watching for changes to ${watched.size} values... (Ctrl-C to exit)")
+    val (watchedPaths, watchedValues) = watched.partitionMap {
+      case (ammonite.interp.Watchable.Path(p), _) => Left(())
+      case (_, _) => Right(())
+    }
+    val watchedValueStr = if (watchedValues.isEmpty) "" else s" and ${watchedValues.size} other values"
+    printInfo(s"Watching for changes to ${watchedPaths.size} paths$watchedValueStr... (Ctrl-C to exit)")
     def statAll() = watched.forall{ case (file, lastMTime) =>
       file.poll() == lastMTime
     }
@@ -57,6 +64,14 @@ class MainRunner(val config: ammonite.main.Cli.Config,
     val (result, watched) = run(initMain(isRepl))
 
     val success = handleWatchRes(result, printing)
+    if (ringBell){
+      if (success) println("\u0007")
+      else {
+        println("\u0007")
+        Thread.sleep(250)
+        println("\u0007")
+      }
+    }
     if (!config.watch) success
     else{
       watchAndWait(watched())
@@ -64,13 +79,17 @@ class MainRunner(val config: ammonite.main.Cli.Config,
     }
   }
 
+
+  val colored = config.colored.getOrElse(mainInteractive)
+
+  override val colors = if(colored) Colors.Default else Colors.BlackWhite
   override def runScript(scriptPath: os.Path, scriptArgs: List[String]) =
     watchLoop2(
       isRepl = false,
       printing = true,
       mainCfg => {
         val logger = new PrintLogger(
-          colors != ammonite.util.Colors.BlackWhite,
+          colored,
           disableTicker,
           colors,
           outprintStream,
@@ -78,7 +97,7 @@ class MainRunner(val config: ammonite.main.Cli.Config,
           errPrintStream,
           stdIn,
           debugEnabled = debugLog,
-          useContext = true
+          context = ""
         )
         logger.debug(s"Using explicit system properties: ${systemProperties}")
 

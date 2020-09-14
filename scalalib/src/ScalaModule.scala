@@ -2,7 +2,7 @@ package mill
 package scalalib
 
 import coursier.Repository
-import mill.define.{Target, Task, TaskModule}
+import mill.define.{Command, Target, Task, TaskModule}
 import mill.eval.{PathRef, Result}
 import mill.modules.Jvm
 import mill.modules.Jvm.createJar
@@ -15,15 +15,13 @@ import mill.api.DummyInputStream
   * Core configuration required to compile a single Scala compilation target
   */
 trait ScalaModule extends JavaModule { outer =>
-  trait Tests extends TestModule with ScalaModule{
+
+  trait Tests extends super.Tests with ScalaModule {
     override def scalaOrganization = outer.scalaOrganization()
     def scalaVersion = outer.scalaVersion()
-    override def repositories = outer.repositories
     override def scalacPluginIvyDeps = outer.scalacPluginIvyDeps
+    override def scalacPluginClasspath = outer.scalacPluginClasspath
     override def scalacOptions = outer.scalacOptions
-    override def javacOptions = outer.javacOptions
-    override def zincWorker = outer.zincWorker
-    override def moduleDeps: Seq[JavaModule] = Seq(outer)
   }
 
   /**
@@ -45,7 +43,7 @@ trait ScalaModule extends JavaModule { outer =>
     for {
       root <- allSources()
       if os.exists(root.path)
-      path <- (if (os.isDir(root.path)) os.walk(root.path) else Seq(root.path))
+      path <- if (os.isDir(root.path)) os.walk(root.path) else Seq(root.path)
       if os.isFile(path) && ((path.ext == "scala" || path.ext == "java") && !isHiddenFile(path))
     } yield PathRef(path)
   }
@@ -94,9 +92,12 @@ trait ScalaModule extends JavaModule { outer =>
     */
   def scalacOptions = T{ Seq.empty[String] }
 
-  def scalaDocOptions = T{ scalacOptions() }
-
-
+  def scalaDocOptions: T[Seq[String]] = T{
+    val defaults = if (isDotty(scalaVersion())) Seq(
+      "-project", artifactName()
+    ) else Seq()
+    scalacOptions() ++ defaults
+  }
 
   /**
     * The local classpath of Scala compiler plugins on-disk; you can add
@@ -105,6 +106,15 @@ trait ScalaModule extends JavaModule { outer =>
     */
   def scalacPluginClasspath: T[Agg[PathRef]] = T {
     resolveDeps(scalacPluginIvyDeps)()
+  }
+
+  /**
+    * Classpath of the scaladoc (or dottydoc) tool.
+    */
+  def scalaDocClasspath: T[Agg[PathRef]] = T {
+    resolveDeps(
+      T.task{scalaDocIvyDeps(scalaOrganization(), scalaVersion())}
+    )()
   }
 
   /**
@@ -127,16 +137,12 @@ trait ScalaModule extends JavaModule { outer =>
       }
     )()
   }
-  override def compileClasspath = T{
-    transitiveLocalClasspath() ++
-    resources() ++
-    unmanagedClasspath() ++
-    resolveDeps(T.task{compileIvyDeps() ++ scalaLibraryIvyDeps() ++ transitiveIvyDeps()})()
+
+  override def resolvedIvyDeps: T[Agg[PathRef]] = T {
+    resolveDeps(T.task{transitiveCompileIvyDeps() ++ scalaLibraryIvyDeps() ++ transitiveIvyDeps()})()
   }
 
-  override def upstreamAssemblyClasspath = T{
-    transitiveLocalClasspath() ++
-    unmanagedClasspath() ++
+  override def resolvedRunIvyDeps: T[Agg[PathRef]] = T {
     resolveDeps(T.task{runIvyDeps() ++ scalaLibraryIvyDeps() ++ transitiveIvyDeps()})()
   }
 
@@ -162,27 +168,51 @@ trait ScalaModule extends JavaModule { outer =>
     val javadocDir = outDir / 'javadoc
     os.makeDir.all(javadocDir)
 
+    if (isDotty(scalaVersion())) {
+      // merge all docSources into one directory by copying all children
+      for {
+        ref <- docSources()
+        docSource = ref.path
+        if os.exists(docSource) && os.isDir(docSource)
+        children = os.walk(docSource)
+        child <- children
+        if os.isFile(child)
+      } {
+        os.copy.over(child, javadocDir / (child.subRelativeTo(docSource)), createFolders = true)
+      }
+    }
+
     val files = allSourceFiles().map(_.path.toString)
+
+    val outputOptions =
+      if (isDotty(scalaVersion()))
+        Seq("-siteroot", javadocDir.toNIO.toString)
+      else
+        Seq("-d", javadocDir.toNIO.toString)
 
     val pluginOptions = scalaDocPluginClasspath().map(pluginPathRef => s"-Xplugin:${pluginPathRef.path}")
     val compileCp = compileClasspath().filter(_.path.ext != "pom").map(_.path)
     val options = Seq(
-      "-d", javadocDir.toNIO.toString,
       "-classpath", compileCp.mkString(java.io.File.pathSeparator)
     ) ++
+      outputOptions ++
       pluginOptions ++
-      scalaDocOptions()
+      scalaDocOptions() // user options come last, so they can override any other settings
 
     if (files.isEmpty) Result.Success(createJar(Agg(javadocDir))(outDir))
     else {
       zincWorker.worker().docJar(
         scalaVersion(),
         scalaOrganization(),
-        scalaCompilerClasspath().map(_.path),
+        scalaDocClasspath().map(_.path),
         scalacPluginClasspath().map(_.path),
         files ++ options
       ) match{
-        case true => Result.Success(createJar(Agg(javadocDir))(outDir))
+        case true =>
+          val inputPath =
+            if (isDotty(scalaVersion())) javadocDir / '_site
+            else javadocDir
+          Result.Success(createJar(Agg(inputPath))(outDir))
         case false => Result.Failure("docJar generation failed")
       }
     }
@@ -223,9 +253,13 @@ trait ScalaModule extends JavaModule { outer =>
     localClasspath() ++
     transitiveLocalClasspath() ++
     unmanagedClasspath() ++
+    resolvedAmmoniteReplIvyDeps()
+  }
+
+  def resolvedAmmoniteReplIvyDeps = T{
     resolveDeps(T.task{
       runIvyDeps() ++ scalaLibraryIvyDeps() ++ transitiveIvyDeps() ++
-      Agg(ivy"com.lihaoyi:::ammonite:${ammoniteVersion()}")
+        Agg(ivy"com.lihaoyi:::ammonite:${ammoniteVersion()}")
     })()
   }
 
@@ -268,4 +302,11 @@ trait ScalaModule extends JavaModule { outer =>
 
   override def artifactId: T[String] = artifactName() + artifactSuffix()
 
+  override def prepareOffline(): Command[Unit] = T.command {
+    super.prepareOffline()
+    resolveDeps(scalacPluginIvyDeps)()
+    resolveDeps(scalaDocPluginIvyDeps)()
+    resolvedAmmoniteReplIvyDeps()
+    ()
+  }
 }

@@ -64,7 +64,7 @@ trait ScalaPBModule extends ScalaModule {
         coursier.LocalRepositories.ivy2Local,
         MavenRepository("https://repo1.maven.org/maven2")
       ),
-      Lib.depToDependency(_, "2.12.4"),
+      Lib.depToDependency(_, "2.13.1"),
       Seq(ivy"com.thesamet.scalapb::scalapbc:${scalaPBVersion()}")
     )
   }
@@ -72,7 +72,7 @@ trait ScalaPBModule extends ScalaModule {
   def scalaPBIncludePath: T[Seq[PathRef]] = T.sources { Seq.empty[PathRef] }
 
   def scalaPBProtoClasspath: T[Agg[PathRef]] = T {
-    resolveDeps(T.task { compileIvyDeps() ++ transitiveIvyDeps() })()
+    resolveDeps(T.task { transitiveCompileIvyDeps() ++ transitiveIvyDeps() })()
   }
 
   def scalaPBUnpackProto: T[PathRef] = T {

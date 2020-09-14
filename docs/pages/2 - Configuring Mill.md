@@ -108,7 +108,7 @@ object foo extends ScalaModule {
 }
 ```
 
-- [Example 3](../example-3.zip)
+- [Example 3](https://github.com/lihaoyi/mill/releases/download/0.7.0/0.7.0-example-3.zip)
 
 You can define a test suite by creating a nested module extending `Tests`, and
 specifying the ivy coordinates and name of your test framework. This expects the
@@ -297,10 +297,11 @@ the same testing framework, etc. and all that can be extracted out into the
 
 Mill builds on ammonite which allows you to
 [define global configuration](http://ammonite.io/#ScriptPredef). Depending on
-how you start mill 2 different files will be loaded. For interactive mode it's
-`~/.mill/ammonite/predef.sc` and from the command line it's
-`~/.mill/ammonite/predefScript.sc`. You might want to create a symlink from one
-to the other to avoid duplication.
+how you start mill, one of two files will be loaded. For the build REPL
+(`--repl` or `-i` without specifying a target), `~/.mill/ammonite/predef.sc`
+will be loaded, and for builds from the command line the file
+`~/.mill/ammonite/predefScript.sc` will be included. You might want to create
+a symlink from one to the other to avoid duplication.
 
 Example `~/.mill/ammonite/predef.sc`
 ```scala
@@ -360,7 +361,7 @@ to return nothing.
 Your custom targets can depend on each other using the `def bar = T {... foo()
 ...}` syntax, and you can create arbitrarily long chains of dependent targets.
 Mill will handle the re-evaluation and caching of the targets' output for you,
-and will provide you a `T.ctx.dest` folder for you to use as scratch space or
+and will provide you a `T.dest` folder for you to use as scratch space or
 to store files you want to return.
 
 Custom targets and commands can contain arbitrary code. Whether you want to
@@ -485,8 +486,8 @@ import mill._, scalalib._
 object foo extends ScalaModule {
   def scalaVersion = "2.12.4"
   def unmanagedClasspath = T {
-    if (!ammonite.ops.exists(millSourcePath / "lib")) Agg()
-    else Agg.from(ammonite.ops.ls(millSourcePath / "lib").map(PathRef(_)))
+    if (!os.exists(millSourcePath / "lib")) Agg()
+    else Agg.from(os.list(millSourcePath / "lib").map(PathRef(_)))
   }
 }
 ```
@@ -512,7 +513,7 @@ compilation output, but if there is more than one or the main class comes from
 some library you can explicitly specify which one to use. This also adds the
 main class to your `foo.jar` and `foo.assembly` jars.
 
-## Merge/exclude files from assembly
+## Merge/exclude/relocate files from assembly
 
 When you make a runnable jar of your project with `assembly` command,
 you may want to exclude some files from a final jar (like signature files, and manifest files from library jars),
@@ -531,7 +532,8 @@ object foo extends ScalaModule {
   def assemblyRules = Seq(
     Rule.Append("application.conf"), // all application.conf files will be concatenated into single file
     Rule.AppendPattern(".*\\.conf"), // all *.conf files will be concatenated into single file
-    Rule.ExcludePattern("*.temp") // all *.temp files will be excluded from a final jar
+    Rule.ExcludePattern("*.temp"), // all *.temp files will be excluded from a final jar
+    Rule.Relocate("shapeless.**", "shade.shapless.@1") // the `shapeless` package will be shaded under the `shade` package
   )
 }
 ```

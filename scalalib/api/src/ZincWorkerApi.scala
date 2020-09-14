@@ -55,18 +55,28 @@ object Util {
     scalaVersion.startsWith("0.") ||
     scalaVersion.startsWith("3.")
 
+  // eg, grepJar(classPath, name = "scala-library", versionPrefix = "2.13.")
+  // return first path in `classPath` that match:
+  // **/scala-library-2.13.*.jar or
+  // **/2.13.*/jars/scala-library.jar
+  def grepJar(classPath: Agg[os.Path], name: String, versionPrefix: String, sources: Boolean = false) = {
+    val suffix = if (sources) "-sources.jar" else ".jar"
+    lazy val dir = if (sources) "srcs" else "jars"
 
-  def grepJar(classPath: Agg[os.Path], name: String, version: String, sources: Boolean = false) = {
-    val suffix = if (sources) "-sources" else ""
-    val mavenStylePath = s"$name-$version$suffix.jar"
-    val ivyStylePath = {
-      val dir = if (sources) "srcs" else "jars"
-      s"$version/$dir/$name$suffix.jar"
+    def mavenStyleMatch(fname: String) =
+      fname.startsWith(s"$name-$versionPrefix") && fname.endsWith(suffix)
+
+    def ivyStyleMatch(p: os.Path) = {
+      val fname = s"$name$suffix"
+      p.segments.toSeq match {
+        case _ :+ v :+ `dir` :+ `fname` if v.startsWith(versionPrefix) => true
+        case _ => false
+      }
     }
 
-    classPath
-      .find(p => p.toString.endsWith(mavenStylePath) || p.toString.endsWith(ivyStylePath))
-      .getOrElse(throw new Exception(s"Cannot find $mavenStylePath or $ivyStylePath in ${classPath.mkString("[", ", ", "]")}"))
+    classPath.iterator
+      .find(p => mavenStyleMatch(p.last) || ivyStyleMatch(p))
+      .getOrElse(throw new Exception(s"Cannot find **/$name-$versionPrefix*$suffix or **/$versionPrefix*/$dir/$name$suffix in ${classPath.iterator.mkString("[", ", ", "]")}"))
   }
 
   val PartialVersion = raw"""(\d+)\.(\d+)\.*""".r
@@ -97,6 +107,13 @@ object Util {
           major
   }
 
+  def scalaJSWorkerVersion(scalaJSVersion: String) = scalaJSVersion match {
+    case _ if scalaJSVersion.startsWith("0.6.") =>
+      "0.6"
+    case ScalaJSFullVersion(major, _, _, _) =>
+      major
+  }
+
   private val ScalaNativeFullVersion = """^([0-9]+)\.([0-9]+)\.([0-9]+)(-.*)?$""".r
 
   def scalaNativeBinaryVersion(version: String) = version match {
@@ -107,9 +124,9 @@ object Util {
         s"$major.$minor"
   }
 
-  def scalaJSNativeWorkerVersion(version: String) = version match {
-      case ScalaNativeFullVersion(major, minor, _, _) =>
-        s"$major.$minor"
+  def scalaNativeWorkerVersion(version: String) = version match {
+    case ScalaNativeFullVersion(major, minor, _, _) =>
+      s"$major.$minor"
   }
 
   /* Starting from Scala.js 0.6.29 and in 1.x, test artifacts must depend on

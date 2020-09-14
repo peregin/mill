@@ -19,15 +19,17 @@ import mill.api.Loose.Agg
 trait JavaModule extends mill.Module
   with TaskModule
   with GenIdeaModule
-  with CoursierModule { outer =>
+  with CoursierModule
+  with OfflineSupportModule { outer =>
 
   def zincWorker: ZincWorkerModule = mill.scalalib.ZincWorkerModule
 
-  trait Tests extends TestModule{
-    override def moduleDeps = Seq(outer)
-    override def repositories = outer.repositories
-    override def javacOptions = outer.javacOptions
-    override def zincWorker = outer.zincWorker
+  trait Tests extends TestModule {
+    override def moduleDeps: Seq[JavaModule] = Seq(outer)
+    override def repositories: Seq[Repository] = outer.repositories
+    override def javacOptions: T[Seq[String]] = outer.javacOptions
+    override def zincWorker: ZincWorkerModule = outer.zincWorker
+    override def skipIdea: Boolean = outer.skipIdea
   }
   def defaultCommandName() = "run"
 
@@ -93,6 +95,32 @@ trait JavaModule extends mill.Module
   /** The direct dependencies of this module */
   def moduleDeps = Seq.empty[JavaModule]
 
+  /** The compile-only direct dependencies of this module. */
+  def compileModuleDeps = Seq.empty[JavaModule]
+
+  /** The compile-only transitive ivy dependencies of this module and all it's upstream compile-only modules. */
+  def transitiveCompileIvyDeps: T[Agg[Dep]] = T{
+    // We never include compile-only dependencies transitively, but we must include normal transitive dependencies!
+    compileIvyDeps() ++ T.traverse(compileModuleDeps)(_.transitiveIvyDeps)().flatten
+  }
+
+  /**
+    * Show the module dependencies.
+    * @param recursive If `true` include all recursive module dependencies, else only show direct dependencies.
+    */
+  def showModuleDeps(recursive: Boolean = false) = T.command {
+    val normalDeps = if (recursive) recursiveModuleDeps else moduleDeps
+    val compileDeps = if(recursive) compileModuleDeps.flatMap(_.transitiveModuleDeps).distinct else compileModuleDeps
+    val deps = (normalDeps ++ compileDeps).distinct
+    val asString = s"${if(recursive) "Recursive module" else "Module"} dependencies of ${millModuleSegments.render}:\n\t${
+      deps.map { dep =>
+        dep.millModuleSegments.render ++
+          (if (compileModuleDeps.contains(dep) || !normalDeps.contains(dep)) " (compile)" else "")
+      }.mkString("\n\t")
+    }"
+    T.log.outputStream.println(asString)
+  }
+
   /** The direct and indirect dependencies of this module */
   def recursiveModuleDeps: Seq[JavaModule] = {
     moduleDeps.flatMap(_.transitiveModuleDeps).distinct
@@ -121,19 +149,17 @@ trait JavaModule extends mill.Module
     * The upstream compilation output of all this module's upstream modules
     */
   def upstreamCompileOutput = T{
-    T.traverse(recursiveModuleDeps)(_.compile)
+    T.traverse((recursiveModuleDeps ++ compileModuleDeps.flatMap(_.transitiveModuleDeps)).distinct)(_.compile)
   }
 
   /**
     * The transitive version of `localClasspath`
     */
   def transitiveLocalClasspath: T[Agg[PathRef]] = T{
-    T.traverse(moduleDeps)(m =>
+    T.traverse(moduleDeps ++ compileModuleDeps)(m =>
       T.task{m.localClasspath() ++ m.transitiveLocalClasspath()}
     )().flatten
   }
-
-  def repositories: Seq[Repository] = zincWorker.repositories
 
   /**
     * What platform suffix to use for publishing, e.g. `_sjs` for Scala.js
@@ -221,20 +247,28 @@ trait JavaModule extends mill.Module
     * All classfiles and resources from upstream modules and dependencies
     * necessary to compile this module
     */
-  def compileClasspath = T{
+  def compileClasspath = T {
     transitiveLocalClasspath() ++
     resources() ++
     unmanagedClasspath() ++
-    resolveDeps(T.task{compileIvyDeps() ++ transitiveIvyDeps()})()
+    resolvedIvyDeps()
+  }
+
+  def resolvedIvyDeps: T[Agg[PathRef]] = T {
+    resolveDeps(T.task{transitiveCompileIvyDeps() ++ transitiveIvyDeps()})()
   }
 
   /**
     * All upstream classfiles and resources necessary to build and executable
     * assembly, but without this module's contribution
     */
-  def upstreamAssemblyClasspath = T{
+  def upstreamAssemblyClasspath = T {
     transitiveLocalClasspath() ++
     unmanagedClasspath() ++
+    resolvedRunIvyDeps()
+  }
+
+  def resolvedRunIvyDeps: T[Agg[PathRef]] = T {
     resolveDeps(T.task{runIvyDeps() ++ transitiveIvyDeps()})()
   }
 
@@ -301,6 +335,14 @@ trait JavaModule extends mill.Module
    * as that is done in the [[docJar]] target.
    */
   def javadocOptions: T[Seq[String]] = T { Seq[String]() }
+
+  /**
+    * Extra directories to be processed by the API documentation tool.
+    *
+    * Typically includes static files such as html and markdown, but depends
+    * on the doc tool that is actually used.
+    */
+  def docSources = T.sources(millSourcePath / 'docs)
 
   /**
    * The documentation jar, containing all the Javadoc/Scaladoc HTML files, for
@@ -409,10 +451,10 @@ trait JavaModule extends mill.Module
   def ivyDepsTree(inverse: Boolean = false, withCompile: Boolean = false, withRuntime: Boolean = false): Command[Unit] =
     (withCompile, withRuntime) match {
       case (true, true) => T.command {
-          printDepsTree(inverse, T.task{ compileIvyDeps() ++ runIvyDeps() })
+          printDepsTree(inverse, T.task{ transitiveCompileIvyDeps() ++ runIvyDeps() })
         }
       case (true, false) => T.command {
-          printDepsTree(inverse, compileIvyDeps)
+          printDepsTree(inverse, transitiveCompileIvyDeps)
         }
       case (false, true) => T.command {
           printDepsTree(inverse, runIvyDeps)
@@ -571,6 +613,14 @@ trait JavaModule extends mill.Module
   def artifactId: T[String] = artifactName()
 
   def forkWorkingDir = T{ ammonite.ops.pwd }
+
+  override def prepareOffline(): Command[Unit] = T.command {
+    super.prepareOffline()
+    resolvedIvyDeps()
+    zincWorker.prepareOffline()
+    resolvedRunIvyDeps()
+    ()
+  }
 }
 
 trait TestModule extends JavaModule with TaskModule {
